@@ -1,0 +1,8 @@
+transformers
+tqdm
+datasets
+evaluate
+scikit-learn
+accelerate
+--find-links https://download.pytorch.org/whl/cu118
+torch
