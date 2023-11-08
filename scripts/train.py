@@ -5,9 +5,11 @@ import wandb
 import torch
 from argparse import ArgumentParser, Namespace
 from datasets import load_dataset
-from transformers import Trainer, TrainingArguments, AutoTokenizer, AutoModelForSequenceClassification
+from transformers import Trainer, TrainingArguments, AutoTokenizer, AutoModelForMultipleChoice
 import numpy as np
 import evaluate
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 timestamp = time.strftime("%Y%m%d_%H%M%S")
 
@@ -28,14 +30,13 @@ print(config)
 wandb.init(project="qa_cosmos", name=timestamp, config=config)
 
 # Load dataset
-dataset = load_dataset('csv', data_files={
-                       'train': 'datasets/raw_data/train.csv', 'dev': 'datasets/raw_data/valid.csv'})
-print(dataset)
+cosmos = load_dataset("cosmos_qa")
+print(cosmos)
+print(cosmos['train'][0])
 
 # Load tokenizer and model
 tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-model = AutoModelForSequenceClassification.from_pretrained(
-    config.model_name, num_labels=4)
+model = AutoModelForMultipleChoice.from_pretrained(config.model_name)
 
 # tokenizer.add_tokens(["<e1>", "</e1>", "<e2>", "</e2>"])
 # model.resize_token_embeddings(len(tokenizer))
@@ -43,55 +44,38 @@ model = AutoModelForSequenceClassification.from_pretrained(
 
 # Tokenize dataset
 def tokenize_function(examples):
-    contexts = []
+    complete_contexts = [[context + ' ' + question] * 4 for context,
+                         question in zip(examples['context'], examples['question'])]
     answers = []
-    for c, q, a0, a1, a2, a3 in zip(examples['context'], examples['question'], examples['answer0'], examples['answer1'], examples['answer2'], examples['answer3']):
-        context = c + ' ' + q
-        answer = '0: ' + str(a0) + ' 1: ' + str(a1) + \
-            ' 2: ' + str(a2) + ' 3: ' + str(a3)
-        contexts.append(context)
-        answers.append(answer)
-
-    inputs = tokenizer(contexts, answers, padding="max_length",
-                       max_length=config.max_seq_length, truncation=True)
-    inputs["labels"] = examples["label"]
+    for a0, a1, a2, a3 in zip(examples["answer0"], examples["answer1"], examples["answer2"], examples["answer3"]):
+        answers.append([a0, a1, a2, a3])
+    complete_contexts = sum(complete_contexts, [])
+    answers = sum(answers, [])
+    labels = examples["label"]
+    tokenized_examples = tokenizer(complete_contexts, answers, truncation=True,
+                                   padding='max_length', max_length=config.max_seq_length)
+    inputs = {k: [v[i:i+4] for i in range(0, len(v), 4)]
+              for k, v in tokenized_examples.items()}
+    inputs["labels"] = labels
     return inputs
 
 
-def tokenize_function_test(examples):
-    contexts = []
-    answers = []
-    for c, q, a0, a1, a2, a3 in zip(examples['context'], examples['question'], examples['answer0'], examples['answer1'], examples['answer2'], examples['answer3']):
-        context = c + ' ' + q
-        answer = '0: ' + str(a0) + ' 1: ' + str(a1) + \
-            ' 2: ' + str(a2) + ' 3: ' + str(a3)
-        contexts.append(context)
-        answers.append(answer)
-
-    inputs = tokenizer(contexts, answers, padding="max_length",
-                       max_length=config.max_seq_length, truncation=True)
-    return inputs
+tokenized_cosmos = cosmos.map(tokenize_function, batched=True)
 
 
-tokenized_datasets = dataset.map(tokenize_function, batched=True)
-
-test_dataset = load_dataset("json", data_files='datasets/raw_data/test.jsonl')
-test_dataset = test_dataset.map(tokenize_function_test, batched=True)['train']
-
-
-# small_train_dataset = tokenized_datasets["train"].shuffle(
-#     seed=42).select(range(1000))
-# small_eval_dataset = tokenized_datasets["dev"].shuffle(
-#     seed=42).select(range(1000))
+small_train_dataset = tokenized_cosmos["train"].shuffle(
+    seed=42).select(range(1000))
+small_eval_dataset = tokenized_cosmos["validation"].shuffle(
+    seed=42).select(range(1000))
 
 
-metric = evaluate.load("accuracy")
+accuracy = evaluate.load("accuracy")
 
 
 def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
-    return metric.compute(predictions=predictions, references=labels)
+    predictions, labels = eval_pred
+    predictions = np.argmax(predictions, axis=1)
+    return accuracy.compute(predictions=predictions, references=labels)
 
 
 # Train
@@ -115,13 +99,12 @@ training_args = TrainingArguments(
     save_total_limit=2
 )
 
-# logging_dir=os.path.join(config.output_dir, timestamp, "logs")
 
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=tokenized_datasets["train"],
-    eval_dataset=tokenized_datasets["dev"],
+    train_dataset=tokenized_cosmos["train"],
+    eval_dataset=tokenized_cosmos["validation"],
     compute_metrics=compute_metrics,
 )
 
@@ -136,13 +119,8 @@ trainer = Trainer(
 trainer.train()
 
 # Predict
-predictions = trainer.predict(test_dataset=test_dataset)
-
-# Save predictions
-predictions = np.argmax(predictions.predictions, axis=-1)
-with open(os.path.join(config.output_dir, timestamp, "predictions.txt"), "w") as w:
-    for p in predictions:
-        w.write(str(p) + "\n")
+test_scores = trainer.evaluate(eval_dataset=tokenized_cosmos["test"])
+print(test_scores)
 
 # Save model
 trainer.save_model(os.path.join(config.output_dir, timestamp))

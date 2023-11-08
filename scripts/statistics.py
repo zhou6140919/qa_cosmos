@@ -2,8 +2,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 import pandas as pd
 
-dataset = load_dataset('csv', data_files={
-                       'train': 'datasets/raw_data/train.csv', 'dev': 'datasets/raw_data/valid.csv'})
+dataset = load_dataset('cosmos_qa')
 print(dataset)
 
 
