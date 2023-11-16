@@ -1,4 +1,21 @@
+# Homework 3 Multi Choice Question Answering
+
+## Dataset
+CosMos QA
+
+## Preprocessing
+
+```bash
+conda create -n cosmos_qa python=3.11
+pip install -r ./requirements.txt
+```
+
 ### Length Statistics
+
+```bash
+bash ./statistics.sh
+```
+
 ```bash
 Train set
 count    25262.000000
@@ -20,3 +37,19 @@ min        69.000000
 75%       157.000000
 max       264.000000
 ```
+
+## Training
+
+Edit hyperparameters in `./config/config.json`
+
+```bash
+bash ./train.sh
+```
+
+## Testing
+
+```bash
+bash ./test.sh
+```
+
+The predictions are in `predictions.txt` file in the model path of checkpoints folder

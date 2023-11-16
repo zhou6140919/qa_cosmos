@@ -38,9 +38,6 @@ print(cosmos['train'][0])
 tokenizer = AutoTokenizer.from_pretrained(config.model_name)
 model = AutoModelForMultipleChoice.from_pretrained(config.model_name)
 
-# tokenizer.add_tokens(["<e1>", "</e1>", "<e2>", "</e2>"])
-# model.resize_token_embeddings(len(tokenizer))
-
 
 # Tokenize dataset
 def tokenize_function(examples):
@@ -96,7 +93,7 @@ training_args = TrainingArguments(
     load_best_model_at_end=True,
     logging_strategy="steps",
     logging_steps=10,
-    save_total_limit=2
+    save_total_limit=1
 )
 
 
@@ -109,18 +106,14 @@ trainer = Trainer(
 )
 
 # trainer = Trainer(
-#     model=model,
-#     args=training_args,
-#     train_dataset=small_train_dataset,
-#     eval_dataset=small_eval_dataset,
-#     compute_metrics=compute_metrics,
+#    model=model,
+#    args=training_args,
+#    train_dataset=small_train_dataset,
+#    eval_dataset=small_eval_dataset,
+#    compute_metrics=compute_metrics,
 # )
 
 trainer.train()
-
-# Predict
-test_scores = trainer.evaluate(eval_dataset=tokenized_cosmos["test"])
-print(test_scores)
 
 # Save model
 trainer.save_model(os.path.join(config.output_dir, timestamp))
